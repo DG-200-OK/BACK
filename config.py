@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     db_password: str
     db_host: str = "localhost"
     db_port: int = 3306
-    db_name: str = "culturedb"
+    db_name: str = "culture_db"
 
     secret_key: str
     aws_access_key_id: str

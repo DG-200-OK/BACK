@@ -5,52 +5,57 @@ import uvicorn
 
 from database import engine, Base
 from routers import auth, survey
-# SQLAlchemy 모델을 임포트하여 Base가 인식하도록 함
-from models import user, survey as survey_model
+from models import User, Survey, Response
+import schemas
+from middlewares import response_wrapper_middleware, logging_middleware
 
 app = FastAPI(
-    title="CultureLens API with MySQL",
-    description="Node.js Express 프로젝트를 FastAPI와 MySQL로 변환한 프로젝트입니다.",
-    version="1.1.0",
+    title="CultureLens API - Refactored",
+    description="FastAPI and MySQL backend API for CultureLens, with new DB schema.",
+    version="2.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )
 
-# CORS 미들웨어 설정
+# Add middleware
+app.middleware('http')(logging_middleware)
+app.middleware('http')(response_wrapper_middleware)
+
+# CORS Middleware setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "https://culturelens.cloud", "http://culturelens-front.s3-website.ap-northeast-2.amazonaws.com"],  # Allows all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 @app.on_event("startup")
 async def startup_event():
     """
-    애플리케이션 시작 시, 데이터베이스 테이블을 생성합니다.
+    On application startup, create database tables.
     """
     async with engine.begin() as conn:
-        # 개발 중에는 기존 테이블을 삭제하고 다시 생성할 수 있습니다.
+        # In development, you might want to drop and recreate tables.
         # await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
-# 라우터 등록
-app.include_router(auth.router, prefix="/api/auth", tags=["인증"])
-app.include_router(survey.router, prefix="/survey", tags=["설문"])
+# Register routers
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(survey.router, prefix="/api/surveys", tags=["Surveys"])
 
 @app.get("/", tags=["Root"], response_class=HTMLResponse)
 async def read_root():
-    """루트 경로, 서버의 상태를 확인하고 API 문서 링크를 제공합니다."""
+    """Root endpoint to check server status and provide API documentation links."""
     return """
     <html>
         <head>
             <title>CultureLens API</title>
         </head>
         <body>
-            <h1>CultureLens API</h1>
-            <p>✅ 서버가 잘 작동 중입니다.</p>
-            <p>API 문서:</p>
+            <h1>CultureLens API (v2.0)</h1>
+            <p>✅ Server is running correctly.</p>
+            <p>API Documentation:</p>
             <ul>
                 <li><a href="/api/docs">Swagger UI</a></li>
                 <li><a href="/api/redoc">ReDoc</a></li>
@@ -59,6 +64,6 @@ async def read_root():
     </html>
     """
 
-# uvicorn 서버를 직접 실행하려면 아래 코드를 활성화하세요.
+# To run the server directly with uvicorn, uncomment the following lines:
 # if __name__ == "__main__":
 #     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

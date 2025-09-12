@@ -1,18 +1,18 @@
 import json
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-import schemas
+from schemas.survey import Survey, SurveyCreate, UploadImageResponseData
+from schemas.response import Response, ResponseCreate
 import crud
 from database import get_db
 from utils.s3 import upload_to_s3
 
 router = APIRouter()
 
-@router.post("/", status_code=status.HTTP_201_CREATED, response_model=schemas.Survey)
+@router.post("/", status_code=status.HTTP_201_CREATED, response_model=Survey)
 async def create_survey(
     db: AsyncSession = Depends(get_db),
-    admin: str = Form(...),
     country: str = Form(...),
     category: str = Form(...),
     entityName: str = Form(...),
@@ -32,37 +32,51 @@ async def create_survey(
     except (json.JSONDecodeError, ValueError):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Captions는 반드시 리스트 형태의 JSON 문자열이어야 합니다.")
 
-    survey_in = schemas.SurveyCreate(
-        admin=admin,
+    survey_in = SurveyCreate(
+        title=entityName,
         country=country,
         category=category,
-        entityName=entityName,
         imageUrl=image_url,
         captions=captions_list,
     )
     new_survey = await crud.create_survey(db=db, survey=survey_in)
     return new_survey
 
-@router.post("/test")
+@router.post("/test", response_model=UploadImageResponseData)
 async def test_image_upload(image: UploadFile = File(...)):
     """이미지 업로드 테스트 API"""
     if not image.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미지 파일이 첨부되지 않았습니다.")
     
     image_url = upload_to_s3(image)
-    return {"message": "이미지 업로드 성공", "imageUrl": image_url}
+    return {"imageUrl": image_url}
 
 
-@router.get("/", response_model=List[schemas.Survey])
-async def get_all_surveys(db: AsyncSession = Depends(get_db)):
+@router.get("/", response_model=List[Survey], response_model_by_alias=False)
+async def get_all_surveys(
+    db: AsyncSession = Depends(get_db), 
+    user_id: int = Header(..., alias="user-id"),
+    page: int = Header(1, alias="page")
+):
     """전체 설문 목록 조회 API"""
-    surveys = await crud.get_surveys(db)
+    limit = 5
+    skip = (page - 1) * limit
+    surveys = await crud.get_surveys_with_progress(db, user_id=user_id, skip=skip, limit=limit)
     return surveys
 
-@router.get("/{id}", response_model=schemas.Survey)
+@router.get("/{id}", response_model=Survey)
 async def get_survey_by_id(id: int, db: AsyncSession = Depends(get_db)):
     """ID로 특정 설문 조회 API"""
     survey = await crud.get_survey(db, survey_id=id)
     if not survey:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="설문을 찾을 수 없습니다.")
     return survey
+
+@router.post("/response", status_code=status.HTTP_201_CREATED, response_model=Response, response_model_by_alias=False)
+async def create_survey_response(
+    response_in: ResponseCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """설문 응답 생성 API"""
+    new_response = await crud.create_response(db=db, response=response_in)
+    return new_response

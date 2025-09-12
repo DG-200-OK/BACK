@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from schemas.auth import MyPageData
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-import schemas
+from fastapi.responses import JSONResponse
+from schemas.auth import UserCreate, UserInDB, UserUpdate
 import crud
 from database import get_db
 from utils.security import verify_password
@@ -8,26 +11,52 @@ from utils.security import verify_password
 router = APIRouter()
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
-async def signup(user_in: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
+async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     """회원가입 API"""
-    existing_user = await crud.get_user_by_id(db, user_id=user_in.id)
+    existing_user = await crud.get_user_by_username(db, username=user_in.username)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="이미 존재하는 아이디입니다.",
+            detail="Username already registered",
         )
     
     await crud.create_user(db=db, user=user_in)
-    return {"message": "회원가입 성공"}
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=None)
 
-@router.post("/login")
-async def login(user_in: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
+@router.post("/login", response_model=UserInDB)
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     """로그인 API"""
-    user = await crud.get_user_by_id(db, user_id=user_in.id)
-    if not user or not verify_password(user_in.password, user.password):
+    user = await crud.get_user_by_username(db, username=form_data.username)
+    if not user or not verify_password(form_data.password, user.password):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="아이디 또는 비밀번호가 잘못되었습니다.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return {"message": "로그인 성공", "user": {"id": user.id}}
+    return UserInDB.from_orm(user)
+
+@router.get("/me", response_model=MyPageData)
+async def get_me(
+    user_id: int = Header(..., alias="user-id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """마이페이지 정보 조회 API"""
+    mypage_data = await crud.get_user_responses(db, user_id=user_id)
+    if not mypage_data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return mypage_data
+
+@router.put("/me", response_model=UserInDB)
+async def update_me(
+    user_in: "UserUpdate",
+    user_id: int = Header(..., alias="user-id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """사용자 정보 수정 API"""
+    updated_user = await crud.update_user(db, user_id=user_id, user_in=user_in)
+    if updated_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if isinstance(updated_user, str):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=updated_user)
+    return updated_user

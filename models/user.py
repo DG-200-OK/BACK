@@ -1,9 +1,10 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, BigInteger, String
+from sqlalchemy.orm import relationship
 from database import Base
 
 class User(Base):
-    __tablename__ = "users"
-
-    db_id = Column(Integer, primary_key=True, index=True)
-    id = Column(String(8), unique=True, index=True, nullable=False)
-    password = Column(String(255), nullable=False)
+    __tablename__ = "user"
+    userId = Column(BigInteger, primary_key=True, autoincrement=True)
+    username = Column(String(255), unique=True, index=True)
+    password = Column(String(255))
+    responses = relationship("Response", back_populates="user")
