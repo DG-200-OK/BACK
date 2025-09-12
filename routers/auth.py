@@ -28,9 +28,14 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
     """로그인 API"""
     user = await crud.get_user_by_username(db, username=form_data.username)
     if not user or not verify_password(form_data.password, user.password):
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            content={
+                "success": False,
+                "responseData": None,
+                "statusCode": status.HTTP_401_UNAUTHORIZED,
+                "message": "아이디 또는 비밀번호가 잘못되었습니다.",
+            },
             headers={"WWW-Authenticate": "Bearer"},
         )
 

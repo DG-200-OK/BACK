@@ -70,14 +70,12 @@ async def create_survey(db: AsyncSession, survey: SurveyCreate) -> models.Survey
     await db.refresh(db_survey)
     return db_survey
 
-async def get_surveys_with_progress(db: AsyncSession, user_id: int, skip: int = 0, limit: int = 100):
+async def get_surveys_with_progress(db: AsyncSession, user_id: int):
     """사용자의 진행 상황을 포함하여 전체 설문 목록을 조회합니다."""
     # 모든 설문과 관련 캡션을 가져옵니다.
     surveys_result = await db.execute(
         select(models.Survey)
         .options(selectinload(models.Survey.captions))
-        .offset(skip)
-        .limit(limit)
     )
     surveys = surveys_result.scalars().all()
 

@@ -55,13 +55,10 @@ async def test_image_upload(image: UploadFile = File(...)):
 @router.get("/", response_model=List[Survey], response_model_by_alias=False)
 async def get_all_surveys(
     db: AsyncSession = Depends(get_db), 
-    user_id: int = Header(..., alias="user-id"),
-    page: int = Header(1, alias="page")
+    user_id: int = Header(..., alias="user-id")
 ):
     """전체 설문 목록 조회 API"""
-    limit = 5
-    skip = (page - 1) * limit
-    surveys = await crud.get_surveys_with_progress(db, user_id=user_id, skip=skip, limit=limit)
+    surveys = await crud.get_surveys_with_progress(db, user_id=user_id)
     return surveys
 
 @router.get("/{id}", response_model=Survey)

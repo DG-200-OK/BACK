@@ -33,7 +33,7 @@ async def response_wrapper_middleware(request: Request, call_next):
             data = json.loads(response_body)
             # Check if the response is already in the desired format
             if isinstance(data, dict) and 'success' in data and 'responseData' in data:
-                return response
+                return Response(content=response_body.encode(), status_code=response.status_code, headers=dict(response.headers), media_type=response.media_type)
 
             return JSONResponse(
                 status_code=response.status_code,
