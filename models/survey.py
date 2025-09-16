@@ -9,6 +9,8 @@ class Survey(Base):
     country = Column(String(255))
     category = Column(String(255))
     title = Column(String(255))
+    userId = Column(BigInteger, ForeignKey("user.userId"))
+    user = relationship("User", back_populates="surveys")
     captions = relationship("Caption", back_populates="survey")
 
 class Caption(Base):

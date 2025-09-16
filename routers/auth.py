@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from schemas.auth import MyPageData
+from schemas.base import GenericResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.responses import JSONResponse
@@ -49,7 +50,13 @@ async def get_me(
     """마이페이지 정보 조회 API"""
     mypage_data = await crud.get_user_responses(db, user_id=user_id)
     if not mypage_data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "status": "error",
+                "responseData": None,
+            },
+        )
     return mypage_data
 
 @router.put("/me", response_model=UserInDB)

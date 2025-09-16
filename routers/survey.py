@@ -1,46 +1,117 @@
 import json
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Header
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from schemas.survey import Survey, SurveyCreate, UploadImageResponseData
+from schemas.survey import Survey, SurveyCreate, UploadImageResponseData, RegisterSurveyData, SurveyInfo
 from schemas.response import Response, ResponseCreate
+from schemas.base import GenericResponse
 import crud
 from database import get_db
 from utils.s3 import upload_to_s3
 
 router = APIRouter()
 
-@router.post("/", status_code=status.HTTP_201_CREATED, response_model=Survey)
-async def create_survey(
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register_survey(
     db: AsyncSession = Depends(get_db),
+    user_id: int = Header(..., alias="user-id"),
     country: str = Form(...),
     category: str = Form(...),
-    entityName: str = Form(...),
-    captions: str = Form(...),  # 프론트엔드에서 JSON 문자열로 보냄
-    image: UploadFile = File(...)
+    title: str = Form(...),
+    imageFile: UploadFile = File(...),
+    level1: Optional[str] = Form(None),
+    level2: Optional[str] = Form(None),
+    level3: Optional[str] = Form(None),
+    level4: Optional[str] = Form(None),
 ):
-    """설문 생성 API"""
-    if not image.filename:
+    """설문 등록 API"""
+    if not imageFile.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미지 파일이 첨부되지 않았습니다.")
 
-    image_url = upload_to_s3(image)
-    
-    try:
-        captions_list = json.loads(captions)
-        if not isinstance(captions_list, list):
-            raise ValueError()
-    except (json.JSONDecodeError, ValueError):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Captions는 반드시 리스트 형태의 JSON 문자열이어야 합니다.")
-
+    image_url = upload_to_s3(imageFile)
+    category_map = {
+        "architecture": "Architecture",
+        "clothes": "Clothing",
+        "cuisine": "Cuisine",
+        "game": "Game",
+        "tool": "Tool"
+    }
+    country_map = {
+        "Korea": "한국",
+        "Japan": "일본",
+        "China": "중국"
+    }
+    category = category_map.get(category, category)
+    country = country_map.get(country, country)
+     
     survey_in = SurveyCreate(
-        title=entityName,
+        title=title,
         country=country,
         category=category,
         imageUrl=image_url,
-        captions=captions_list,
+        userId=user_id,
+        level1=level1,
+        level2=level2,
+        level3=level3,
+        level4=level4,
     )
-    new_survey = await crud.create_survey(db=db, survey=survey_in)
-    return new_survey
+    await crud.create_survey(db=db, survey=survey_in)
+    return JSONResponse(content={"success": True, "responseData": {}})
+
+@router.get("/register", response_model=RegisterSurveyData)
+async def get_registered_surveys(
+    user_id: int = Header(..., alias="user-id"),
+    db: AsyncSession = Depends(get_db)
+):
+    """사용자가 등록한 설문 목록 조회 API"""
+    surveys = await crud.get_surveys_by_user_id(db, user_id=user_id)
+    
+    registered_surveys = [
+        SurveyInfo.from_orm(survey) for survey in surveys
+    ]
+
+    return RegisterSurveyData(registerSurvey=registered_surveys)
+
+# @router.post("/", status_code=status.HTTP_201_CREATED, response_model=Survey)
+# async def create_survey(
+#     db: AsyncSession = Depends(get_db),
+#     country: str = Form(...),
+#     category: str = Form(...),
+#     entityName: str = Form(...),
+#     captions: bytes = Form(..., description='JSON string of a list of caption objects', example='[{"text": "Caption 1", "type": "level1"}, {"text": "Caption 2", "type": "level2"}]'),  # 프론트엔드에서 JSON 문자열로 보냄
+#     image: UploadFile = File(...)
+# ):
+#     """설문 생성 API"""
+#     if not image.filename:
+#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미지 파일이 첨부되지 않았습니다.")
+
+#     image_url = upload_to_s3(image)
+    
+#     try:
+#         captions_str = captions.decode('utf-8-sig')
+#         captions_list = json.loads(captions_str)
+#         if not isinstance(captions_list, list):
+#             raise ValueError()
+        
+#         captions_body_data = {}
+#         for caption in captions_list:
+#             if 'type' in caption and 'text' in caption:
+#                 captions_body_data[caption['type']] = caption['text']
+#         captions_body = CaptionsBody(**captions_body_data)
+
+#     except (json.JSONDecodeError, ValueError):
+#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Captions는 반드시 리스트 형태의 JSON 문자열이어야 합니다.")
+
+#     survey_in = SurveyCreate(
+#         title=entityName,
+#         country=country,
+#         category=category,
+#         imageUrl=image_url,
+#         captions=captions_body,
+#     )
+#     new_survey = await crud.create_survey(db=db, survey=survey_in)
+#     return new_survey
 
 @router.post("/test", response_model=UploadImageResponseData)
 async def test_image_upload(image: UploadFile = File(...)):

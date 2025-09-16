@@ -24,7 +24,11 @@ class SurveyBase(BaseModel):
     title: str
 
 class SurveyCreate(SurveyBase):
-    captions: List[CaptionCreate]
+    userId: int
+    level1: Optional[str] = None
+    level2: Optional[str] = None
+    level3: Optional[str] = None
+    level4: Optional[str] = None
 
 class Survey(SurveyBase):
     surveyId: int
@@ -36,3 +40,14 @@ class Survey(SurveyBase):
 
 class UploadImageResponseData(BaseModel):
     imageUrl: str
+
+class SurveyInfo(BaseModel):
+    title: str
+    category: str
+    country: str
+    imageUrl: str
+    class Config:
+        from_attributes = True
+
+class RegisterSurveyData(BaseModel):
+    registerSurvey: List[SurveyInfo]

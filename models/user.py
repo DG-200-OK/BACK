@@ -8,3 +8,4 @@ class User(Base):
     username = Column(String(255), unique=True, index=True)
     password = Column(String(255))
     responses = relationship("Response", back_populates="user")
+    surveys = relationship("Survey", back_populates="user")

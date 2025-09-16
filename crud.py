@@ -47,28 +47,29 @@ async def update_user(db: AsyncSession, user_id: int, user_in: "UserUpdate"):
 # ====================
 #       Survey
 # ====================
-async def create_survey(db: AsyncSession, survey: SurveyCreate) -> models.Survey:
+async def create_survey(db: AsyncSession, survey: SurveyCreate) -> None:
     """새로운 설문을 생성하고 연관된 캡션들도 함께 생성합니다."""
     db_survey = models.Survey(
-        image_url=survey.imageUrl,
+        imageUrl=survey.imageUrl,
         country=survey.country,
         category=survey.category,
-        title=survey.title
+        title=survey.title,
+        userId=survey.userId
     )
     db.add(db_survey)
     await db.flush()  # survey의 survey_id를 얻기 위해 flush
 
-    for caption_data in survey.captions:
-        db_caption = models.Caption(
-            surveyId=db_survey.surveyId,
-            text=caption_data.text,
-            type=caption_data.type
-        )
-        db.add(db_caption)
+    levels = {"level1": survey.level1, "level2": survey.level2, "level3": survey.level3, "level4": survey.level4}
+    for level, text in levels.items():
+        if text and text.strip():
+            db_caption = models.Caption(
+                surveyId=db_survey.surveyId,
+                text=text,
+                type=level
+            )
+            db.add(db_caption)
     
     await db.commit()
-    await db.refresh(db_survey)
-    return db_survey
 
 async def get_surveys_with_progress(db: AsyncSession, user_id: int):
     """사용자의 진행 상황을 포함하여 전체 설문 목록을 조회합니다."""
@@ -106,7 +107,21 @@ async def get_survey(db: AsyncSession, survey_id: int):
     result = await db.execute(
         select(models.Survey).options(selectinload(models.Survey.captions)).filter(models.Survey.surveyId == survey_id)
     )
-    return result.scalars().first()
+    survey = result.scalars().first()
+    if survey:
+        # Explicitly touch the relationship to ensure it's loaded
+        # before the session might be closed or the async context lost.
+        _ = survey.captions
+    return survey
+
+async def get_surveys_by_user_id(db: AsyncSession, user_id: int):
+    """user_id로 사용자가 등록한 설문을 조회합니다."""
+    result = await db.execute(
+        select(models.Survey)
+        .where(models.Survey.userId == user_id)
+    )
+    surveys = result.scalars().all()
+    return surveys
 
 # ====================
 #      Response
@@ -128,23 +143,27 @@ async def get_user_responses(db: AsyncSession, user_id: int):
     if not user:
         return None
 
-    # Get user responses
-    responses_result = await db.execute(
-        select(models.Response)
-        .options(selectinload(models.Response.caption).selectinload(models.Caption.survey))
+    # Get surveys the user has responded to
+    surveys_result = await db.execute(
+        select(models.Survey)
+        .join(models.Caption, models.Survey.surveyId == models.Caption.surveyId)
+        .join(models.Response, models.Caption.captionId == models.Response.captionId)
         .where(models.Response.userId == user_id)
+        .distinct()
     )
-    responses = responses_result.scalars().all()
+    surveys = surveys_result.scalars().all()
 
-    # Format responses
-    formatted_responses = []
-    for res in responses:
-        formatted_responses.append({
-            "surveyId": res.caption.survey.surveyId,
-            "choice": res.captionId
-        })
+    participated_surveys = [
+        {
+            "title": survey.title,
+            "category": survey.category,
+            "country": survey.country,
+            "imageUrl": survey.imageUrl,
+        }
+        for survey in surveys
+    ]
 
     return {
         "username": user.username,
-        "responses": formatted_responses
+        "participatedSurvey": participated_surveys,
     }

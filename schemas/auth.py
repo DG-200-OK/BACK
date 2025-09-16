@@ -1,4 +1,6 @@
 from pydantic import BaseModel, Field
+from typing import List
+from schemas.survey import SurveyInfo
 
 class UserBase(BaseModel):
     username: str
@@ -21,12 +23,6 @@ class LoginResponseData(BaseModel):
     userId: int
     username: str
 
-from typing import List
-
-class MyPageResponse(BaseModel):
-    surveyId: int
-    choice: int
-
 class MyPageData(BaseModel):
     username: str
-    responses: List[MyPageResponse]
+    participatedSurvey: List[SurveyInfo]
