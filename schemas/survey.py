@@ -38,6 +38,10 @@ class Survey(SurveyBase):
         from_attributes = True
         allow_population_by_field_name = True
 
+class SurveyResponse(BaseModel):
+    totalPages: int
+    surveys: List[Survey]
+
 class UploadImageResponseData(BaseModel):
     imageUrl: str
 
@@ -51,3 +55,20 @@ class SurveyInfo(BaseModel):
 
 class RegisterSurveyData(BaseModel):
     registerSurvey: List[SurveyInfo]
+
+class OnGoingSurvey(BaseModel):
+    surveyId: int
+    title: str
+    category: str
+    country: str
+    imageUrl: str
+    progress: float
+    captions: List[Caption] = []
+
+    class Config:
+        from_attributes = True
+
+class OnGoingListResponse(BaseModel):
+    success: bool
+    responseData: dict[str, list[OnGoingSurvey]]
+    message: str

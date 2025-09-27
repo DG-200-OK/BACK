@@ -21,3 +21,5 @@ class Caption(Base):
     type = Column(String(255))
     survey = relationship("Survey", back_populates="captions")
     responses = relationship("Response", back_populates="caption")
+    
+    agent_eval_details = relationship("AgentEvalDetail", back_populates="caption")

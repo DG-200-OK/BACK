@@ -7,3 +7,6 @@ PyJWT
 pydantic-settings
 SQLAlchemy
 aiomysql
+httpx
+scipy
+numpy

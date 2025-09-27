@@ -4,7 +4,8 @@ from fastapi.responses import HTMLResponse
 import uvicorn
 
 from database import engine, Base
-from routers import auth, survey
+from routers import auth, survey, chart, ranking, upload
+from routers.v2 import auth as auth_v2
 from models import User, Survey, Response
 import schemas
 from middlewares import response_wrapper_middleware, logging_middleware
@@ -13,8 +14,8 @@ app = FastAPI(
     title="CultureLens API - Refactored",
     description="FastAPI and MySQL backend API for CultureLens, with new DB schema.",
     version="2.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc"
+    docs_url="/api/eom/docs",
+    redoc_url="/api/eom/redoc"
 )
 
 # Add middleware
@@ -24,7 +25,7 @@ app.middleware('http')(response_wrapper_middleware)
 # CORS Middleware setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "https://culturelens.cloud", "http://culturelens-front.s3-website.ap-northeast-2.amazonaws.com"],  # Allows all origins
+    allow_origins=["http://localhost:3000", "https://publicly-flying-crane.ngrok-free.app", "https://culturelens.ngrok.io", "http://localhost:3002"],  # Allows all origins
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
@@ -41,8 +42,12 @@ async def startup_event():
         await conn.run_sync(Base.metadata.create_all)
 
 # Register routers
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(survey.router, prefix="/api/surveys", tags=["Surveys"])
+app.include_router(chart.router, prefix="/api/chart", tags=["chart"])
+app.include_router(ranking.router, prefix="/api/ranking", tags=["ranking"])
+app.include_router(upload.router, prefix="/api/upload", tags=["upload"])
+app.include_router(auth_v2.router, prefix="/api/v2/auth", tags=["Authentication V2"])
 
 @app.get("/", tags=["Root"], response_class=HTMLResponse)
 async def read_root():
@@ -55,11 +60,7 @@ async def read_root():
         <body>
             <h1>CultureLens API (v2.0)</h1>
             <p>✅ Server is running correctly.</p>
-            <p>API Documentation:</p>
-            <ul>
-                <li><a href="/api/docs">Swagger UI</a></li>
-                <li><a href="/api/redoc">ReDoc</a></li>
-            </ul>
+            <p>직접 조회하지마세요. 배포되어있는 상태인 개발 서버입니다.</p>
         </body>
     </html>
     """

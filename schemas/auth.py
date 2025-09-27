@@ -7,6 +7,8 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    gender: str
+    email: str
 
 class UserUpdate(BaseModel):
     username: str | None = None
@@ -25,4 +27,5 @@ class LoginResponseData(BaseModel):
 
 class MyPageData(BaseModel):
     username: str
+    email: str
     participatedSurvey: List[SurveyInfo]

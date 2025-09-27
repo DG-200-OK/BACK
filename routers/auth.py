@@ -9,7 +9,7 @@ import crud
 from database import get_db
 from utils.security import verify_password
 
-router = APIRouter()
+router = APIRouter(tags=["auth"])
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
@@ -21,6 +21,13 @@ async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
             detail="Username already registered",
         )
     
+    existing_email = await crud.get_user_by_email(db, email=user_in.email)
+    if existing_email:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        )
+
     await crud.create_user(db=db, user=user_in)
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=None)
 
