@@ -171,8 +171,16 @@ async def create_response(db: AsyncSession, response: ResponseCreate):
     )
     current_response_count = response_count_result.scalar_one()
 
-    # If it's a multiple of 5, send a request to the evaluation API
-    if current_response_count % 3 == 0 or current_response_count == 1:
+    # Count total responses across all captions
+    total_response_count_result = await db.execute(
+        select(func.count(models.Response.responseId))
+    )
+    total_response_count = total_response_count_result.scalar_one()
+
+    # Send API request if total response count is multiple of 10
+    should_send_request = (total_response_count % 10 == 0)
+
+    if should_send_request:
         try:
             async with httpx.AsyncClient() as client:
                 # The request body should contain necessary info for evaluation
@@ -476,7 +484,7 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
     caption_query = select(models.Caption).options(
         selectinload(models.Caption.survey),
         selectinload(models.Caption.responses),
-        selectinload(models.Caption.agent_eval_details)
+        selectinload(models.Caption.agent_eval_details_v2)
     ).where(models.Caption.captionId == caption_id)
     
     caption_result = await db.execute(caption_query)
@@ -485,9 +493,9 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
     if not caption:
         return None
 
-    # Group agent_eval_details by flag
+    # Group agent_eval_details_v2 by flag
     agent_eval_details_by_flag = {}
-    for detail in caption.agent_eval_details:
+    for detail in caption.agent_eval_details_v2:
         if detail.flag not in agent_eval_details_by_flag:
             agent_eval_details_by_flag[detail.flag] = []
         agent_eval_details_by_flag[detail.flag].append(detail)

@@ -23,3 +23,4 @@ class Caption(Base):
     responses = relationship("Response", back_populates="caption")
     
     agent_eval_details = relationship("AgentEvalDetail", back_populates="caption")
+    agent_eval_details_v2 = relationship("AgentEvalDetailV2", back_populates="caption")
