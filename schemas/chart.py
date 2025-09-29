@@ -25,9 +25,9 @@ class ChartResponseV2(BaseModel):
 
 # New schema for the chartdata in the single caption response
 class NewChartData(BaseModel):
-    cultural: List[float]
-    visual: List[float]
-    hallucination: List[float]
+    cultural: List[float | None]
+    visual: List[float | None]
+    hallucination: List[float | None]
 
 # New schema for the user distribution
 class UserResponseDistribution(BaseModel):
@@ -45,5 +45,24 @@ class NewCaptionChartData(BaseModel):
 
 class SingleChartResponse(BaseModel):
     responseData: NewCaptionChartData
+    success: bool = True
+    message: str = "요청에 성공하였습니다."
+
+# Schema for overall wasserstein distance response (same format as single caption)
+class OverallChartData(BaseModel):
+    cultural: List[float | None]
+    visual: List[float | None]
+    hallucination: List[float | None]
+
+class OverallCaptionData(BaseModel):
+    captionId: int = 0  # Using 0 for overall data
+    title: str = "Overall Distribution Analysis"
+    imageUrl: str = ""
+    content: str = "Average Wasserstein distances across all captions by flag"
+    chartdata: OverallChartData
+    userResponseDistribution: UserResponseDistribution
+
+class OverallWassersteinResponse(BaseModel):
+    responseData: OverallCaptionData
     success: bool = True
     message: str = "요청에 성공하였습니다."

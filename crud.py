@@ -481,12 +481,17 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
     """
     단일 캡션에 대한 응답을 집계하여 차트 데이터를 조회합니다.
     """
+    # Get all responses from all captions, ordered by responseId (for flag calculation)
+    all_responses_query = select(models.Response).order_by(models.Response.responseId)
+    all_responses_result = await db.execute(all_responses_query)
+    all_responses = all_responses_result.scalars().all()
+
     caption_query = select(models.Caption).options(
         selectinload(models.Caption.survey),
         selectinload(models.Caption.responses),
         selectinload(models.Caption.agent_eval_details_v2)
     ).where(models.Caption.captionId == caption_id)
-    
+
     caption_result = await db.execute(caption_query)
     caption = caption_result.scalars().first()
 
@@ -506,16 +511,31 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
         "hallucination": []
     }
 
-    # Sort all user responses by time
-    all_user_responses = sorted(caption.responses, key=lambda r: r.time)
+    # Get response IDs for this caption
+    caption_response_ids = {r.responseId for r in caption.responses}
 
     # For each flag, calculate wassenstein distance using the correct slice of user responses
     for flag in sorted(agent_eval_details_by_flag.keys()):
         details_for_flag = agent_eval_details_by_flag[flag]
-        
-        # Determine the number of user responses to use for this flag
-        num_responses_to_use = 1 if flag == 0 else flag
-        responses_for_flag = all_user_responses[:num_responses_to_use]
+
+        # Flag represents the total number of responses in the system at that time
+        # So we take the first 'flag' number of responses from the global response list
+        if flag == 0 or flag > len(all_responses):
+            chartdata["cultural"].append(None)
+            chartdata["visual"].append(None)
+            chartdata["hallucination"].append(None)
+            continue
+
+        global_responses_for_flag = all_responses[:flag]
+
+        # Filter to get only responses that belong to this caption
+        responses_for_flag = [r for r in global_responses_for_flag if r.responseId in caption_response_ids]
+
+        if not responses_for_flag:
+            chartdata["cultural"].append(None)
+            chartdata["visual"].append(None)
+            chartdata["hallucination"].append(None)
+            continue
 
         # Generate user distribution for the current slice of responses
         user_cultural_dist = [r.cultural for r in responses_for_flag if r.cultural is not None]
@@ -601,3 +621,120 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
         "chartdata": chartdata,
         "userResponseDistribution": user_response_distribution
     }
+
+async def get_overall_wasserstein_distances(db: AsyncSession):
+    """
+    전체 캡션들의 wasserstein distance 평균을 flag별로 계산합니다.
+    Flag는 전체 시스템의 누적 응답 수를 의미합니다.
+    """
+    # Get all responses from all captions, ordered by responseId
+    all_responses_query = select(models.Response).order_by(models.Response.responseId)
+    all_responses_result = await db.execute(all_responses_query)
+    all_responses = all_responses_result.scalars().all()
+
+    # Get all captions with their responses and agent_eval_details_v2
+    captions_query = select(models.Caption).options(
+        selectinload(models.Caption.responses),
+        selectinload(models.Caption.agent_eval_details_v2)
+    )
+
+    captions_result = await db.execute(captions_query)
+    captions = captions_result.scalars().all()
+
+    # Dictionary to store wasserstein distances by flag
+    # flag -> type -> list of distances
+    distances_by_flag = {}
+
+    for caption in captions:
+        if not caption.responses or not caption.agent_eval_details_v2:
+            continue
+
+        # Group agent_eval_details_v2 by flag
+        agent_eval_details_by_flag = {}
+        for detail in caption.agent_eval_details_v2:
+            if detail.flag not in agent_eval_details_by_flag:
+                agent_eval_details_by_flag[detail.flag] = []
+            agent_eval_details_by_flag[detail.flag].append(detail)
+
+        # Get response IDs for this caption
+        caption_response_ids = {r.responseId for r in caption.responses}
+
+        # For each flag, calculate wasserstein distance
+        for flag in agent_eval_details_by_flag.keys():
+            if flag not in distances_by_flag:
+                distances_by_flag[flag] = {
+                    "cultural": [],
+                    "visual": [],
+                    "hallucination": []
+                }
+
+            details_for_flag = agent_eval_details_by_flag[flag]
+
+            # Flag represents the total number of responses in the system at that time
+            # So we take the first 'flag' number of responses from the global response list
+            if flag == 0 or flag > len(all_responses):
+                continue
+
+            global_responses_for_flag = all_responses[:flag]
+
+            # Filter to get only responses that belong to this caption
+            responses_for_flag = [r for r in global_responses_for_flag if r.responseId in caption_response_ids]
+
+            if not responses_for_flag:
+                continue
+
+            # Generate user distribution for the current slice of responses
+            user_cultural_dist = [r.cultural for r in responses_for_flag if r.cultural is not None]
+            user_visual_dist = [r.visual for r in responses_for_flag if r.visual is not None]
+            user_hallucination_dist = [r.hallucination for r in responses_for_flag if r.hallucination is not None]
+
+            user_dists = {
+                "cultural": user_cultural_dist,
+                "visual": user_visual_dist,
+                "hallucination": user_hallucination_dist
+            }
+
+            # Group agent eval details by type for the current flag
+            details_by_type = {
+                "cultural": [],
+                "visual": [],
+                "hallucination": []
+            }
+            for detail in details_for_flag:
+                if detail.type in details_by_type:
+                    details_by_type[detail.type].append(detail)
+
+            for type_name in ["cultural", "visual", "hallucination"]:
+                type_details = details_by_type.get(type_name)
+                user_dist = user_dists[type_name]
+
+                if not type_details or not user_dist:
+                    continue
+
+                type_details.sort(key=lambda x: x.likert)
+
+                ai_values = [d.likert for d in type_details]
+                ai_weights = [d.value for d in type_details]
+
+                if not np.isclose(sum(ai_weights), 1.0):
+                    ai_weights_sum = sum(ai_weights)
+                    if ai_weights_sum > 0:
+                        ai_weights = np.array(ai_weights) / ai_weights_sum
+                    else:
+                        ai_weights = None
+
+                dist = wasserstein_distance(user_dist, ai_values, v_weights=ai_weights)
+                distances_by_flag[flag][type_name].append(dist)
+
+    # Calculate averages for each flag and type
+    result = {}
+    for flag in sorted(distances_by_flag.keys()):
+        result[flag] = {}
+        for type_name in ["cultural", "visual", "hallucination"]:
+            distances = distances_by_flag[flag][type_name]
+            if distances:
+                result[flag][type_name] = sum(distances) / len(distances)
+            else:
+                result[flag][type_name] = None
+
+    return result
