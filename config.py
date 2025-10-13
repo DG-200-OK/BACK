@@ -8,13 +8,11 @@ class Settings(BaseSettings):
     db_port: int = 3306
     db_name: str = "culture_db"
 
-    jwt_secret_key: str
-    jwt_algorithm: str
-    
-    # 아래 AWS 관련 설정은 S3 비활성화를 위해 모두 주석 처리합니다.
-    # aws_access_key_id: str
-    # aws_secret_access_key: str
-    # aws_s3_bucket_name: str
+    secret_key: str
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    aws_s3_region_name: str
+    aws_s3_bucket_name: str
     port: int = 8000
 
     class Config:
