@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 import uvicorn
 
 from database import engine, Base
-from routers import auth, survey, chart, ranking, upload
+from routers import auth, survey, chart, ranking, # upload
 from routers.v2 import auth as auth_v2
 from models import User, Survey, Response
 import schemas
