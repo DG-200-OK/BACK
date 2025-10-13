@@ -11,7 +11,7 @@ from schemas.response import Response, ResponseCreate
 from schemas.base import GenericResponse
 import crud
 from database import get_db
-from utils.s3 import upload_to_s3
+# from utils.s3 import upload_to_s3 # S3 기능 비활성화
 
 router = APIRouter()
 
@@ -32,7 +32,8 @@ async def register_survey(
     if not imageFile.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미지 파일이 첨부되지 않았습니다.")
 
-    image_url = upload_to_s3(imageFile)
+    # image_url = upload_to_s3(imageFile) # S3 기능 비활성화
+    image_url = "s3_disabled_placeholder.jpg" # 임시 이미지 URL
     category_map = {
         "architecture": "Architecture",
         "clothes": "Clothing",
@@ -47,7 +48,7 @@ async def register_survey(
     }
     category = category_map.get(category, category)
     country = country_map.get(country, country)
-     
+
     survey_in = SurveyCreate(
         title=title,
         country=country,
@@ -67,61 +68,22 @@ async def get_registered_surveys(
     user_id: int = Header(..., alias="user-id"),
     db: AsyncSession = Depends(get_db),
     page: int = Header(1),
-    category: str | None = Header(None),
-    search: str | None = Query(None)
+    category: Optional[str] = Header(None), # <--- 수정
+    search: Optional[str] = Query(None)      # <--- 수정
 ):
     """사용자가 등록한 설문 목록 조회 API"""
     page_size = 4
     chart_data = await crud.get_chart_data_by_caption(db, page=page, page_size=page_size, category=category, search=search, user_id=user_id)
     return chart_data
 
-# @router.post("/", status_code=status.HTTP_201_CREATED, response_model=Survey)
-# async def create_survey(
-#     db: AsyncSession = Depends(get_db),
-#     country: str = Form(...),
-#     category: str = Form(...),
-#     entityName: str = Form(...),
-#     captions: bytes = Form(..., description='JSON string of a list of caption objects', example='[{"text": "Caption 1", "type": "level1"}, {"text": "Caption 2", "type": "level2"}]'),  # 프론트엔드에서 JSON 문자열로 보냄
-#     image: UploadFile = File(...)
-# ):
-#     """설문 생성 API"""
-#     if not image.filename:
-#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미지 파일이 첨부되지 않았습니다.")
-
-#     image_url = upload_to_s3(image)
-    
-#     try:
-#         captions_str = captions.decode('utf-8-sig')
-#         captions_list = json.loads(captions_str)
-#         if not isinstance(captions_list, list):
-#             raise ValueError()
-        
-#         captions_body_data = {}
-#         for caption in captions_list:
-#             if 'type' in caption and 'text' in caption:
-#                 captions_body_data[caption['type']] = caption['text']
-#         captions_body = CaptionsBody(**captions_body_data)
-
-#     except (json.JSONDecodeError, ValueError):
-#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Captions는 반드시 리스트 형태의 JSON 문자열이어야 합니다.")
-
-#     survey_in = SurveyCreate(
-#         title=entityName,
-#         country=country,
-#         category=category,
-#         imageUrl=image_url,
-#         captions=captions_body,
-#     )
-#     new_survey = await crud.create_survey(db=db, survey=survey_in)
-#     return new_survey
-
 @router.post("/test", response_model=UploadImageResponseData)
 async def test_image_upload(image: UploadFile = File(...)):
     """이미지 업로드 테스트 API"""
     if not image.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="이미지 파일이 첨부되지 않았습니다.")
-    
-    image_url = upload_to_s3(image)
+
+    # image_url = upload_to_s3(image) # S3 기능 비활성화
+    image_url = "s3_disabled_placeholder.jpg" # 임시 이미지 URL
     return {"imageUrl": image_url}
 
 
@@ -130,27 +92,25 @@ async def get_all_surveys(
     db: AsyncSession = Depends(get_db), 
     user_id: int = Header(..., alias="user-id"),
     page: int = Header(1),
-    category: str | None = Query(None),
-    search: str | None = Query(None)
+    category: Optional[str] = Query(None), # <--- 수정
+    search: Optional[str] = Query(None)    # <--- 수정
 ):
     """전체 설문 목록 조회 API"""
     surveys = await crud.get_surveys_with_progress(db, user_id=user_id, category=category, search=search)
-    
-    # Filter out completed surveys (progress == 1.0)
+
     uncompleted_surveys = [survey for survey in surveys if survey.progress < 1.0]
-    
-    # Randomize the order of uncompleted surveys, then sort by response count
+
     random.shuffle(uncompleted_surveys)
     uncompleted_surveys.sort(key=lambda s: s.total_responses)
-    
+
     page_size = 4
     total_surveys = len(uncompleted_surveys)
     total_pages = math.ceil(total_surveys / page_size)
-    
+
     start = (page - 1) * page_size
     end = start + page_size
     paginated_surveys = uncompleted_surveys[start:end]
-    
+
     return {"totalPages": total_pages, "surveys": paginated_surveys}
 
 @router.get("/ongoing", response_model=OnGoingListResponse)

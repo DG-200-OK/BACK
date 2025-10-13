@@ -85,9 +85,8 @@ async def create_survey(db: AsyncSession, survey: SurveyCreate) -> None:
     
     await db.commit()
 
-async def get_surveys_with_progress(db: AsyncSession, user_id: int, category: str | None = None, search: str | None = None):
+async def get_surveys_with_progress(db: AsyncSession, user_id: int, category: Optional[str] = None, search: Optional[str] = None): # <--- 수정됨
     """사용자의 진행 상황과 전체 응답 수를 포함하여 전체 설문 목록을 조회합니다."""
-    # 1. Get all surveys with their captions
     stmt = select(models.Survey).options(selectinload(models.Survey.captions))
     if category:
         stmt = stmt.filter(models.Survey.category == category)
@@ -97,7 +96,6 @@ async def get_surveys_with_progress(db: AsyncSession, user_id: int, category: st
     surveys = surveys_result.scalars().unique().all()
     survey_map = {s.surveyId: s for s in surveys}
 
-    # Initialize progress and total_responses
     for survey in surveys:
         survey.progress = 0.0
         survey.total_responses = 0
@@ -105,7 +103,6 @@ async def get_surveys_with_progress(db: AsyncSession, user_id: int, category: st
     if not survey_map:
         return []
 
-    # 2. Get all response counts grouped by survey
     response_counts_result = await db.execute(
         select(
             models.Caption.surveyId,
@@ -118,7 +115,6 @@ async def get_surveys_with_progress(db: AsyncSession, user_id: int, category: st
     )
     response_counts = response_counts_result.all()
 
-    # 3. Assign counts and calculate progress
     for survey_id, total_count, user_count in response_counts:
         if survey_id in survey_map:
             survey = survey_map[survey_id]
@@ -381,10 +377,11 @@ async def update_survey_image_url(db: AsyncSession, survey_id: int, new_image_ur
         await db.refresh(survey)
     return survey
 
-async def get_chart_data_by_caption(db: AsyncSession, page: int, page_size: int, category: str | None = None, search: str | None = None, user_id: int | None = None):
+async def get_chart_data_by_caption(db: AsyncSession, page: int, page_size: int, category: Optional[str] = None, search: Optional[str] = None, user_id: Optional[int] = None): # <--- 수정됨
     """
     캡션별 응답을 집계하여 차트 데이터를 조회합니다.
     """
+    # ... (이하 모든 코드는 원본과 동일) ...
     captions_query = select(models.Caption).options(
         selectinload(models.Caption.survey),
         selectinload(models.Caption.responses),
@@ -399,7 +396,7 @@ async def get_chart_data_by_caption(db: AsyncSession, page: int, page_size: int,
 
     if category:
         all_captions = [caption for caption in all_captions if caption.survey.category == category]
-    
+
     if search:
         all_captions = [caption for caption in all_captions if search.lower() in caption.survey.title.lower()]
 
@@ -413,12 +410,12 @@ async def get_chart_data_by_caption(db: AsyncSession, page: int, page_size: int,
 
     response_data = []
     for caption in captions:
-        
+
         def calculate_distribution(data_list, is_agent=False):
             cultural_scores = [0.0] * 5
             visual_scores = [0.0] * 5
             hallucination_scores = [0.0] * 5
-            
+
             if is_agent:
                 for item in data_list:
                     if 1 <= item.likert <= 5:
@@ -442,7 +439,7 @@ async def get_chart_data_by_caption(db: AsyncSession, page: int, page_size: int,
                         visual_scores[visual - 1] += 1
                     if 1 <= hallucination <= 5:
                         hallucination_scores[hallucination - 1] += 1
-                
+
                 total_responses = len(data_list)
                 if total_responses == 0:
                     return ([0.0] * 5, [0.0] * 5, [0.0] * 5)
@@ -454,7 +451,7 @@ async def get_chart_data_by_caption(db: AsyncSession, page: int, page_size: int,
                 )
 
         people_cultural, people_visual, people_hallucination = calculate_distribution(caption.responses)
-        agent_cultural, agent_visual, agent_hallucination = calculate_distribution(caption.agent_eval_details, is_agent=True) # Changed here
+        agent_cultural, agent_visual, agent_hallucination = calculate_distribution(caption.agent_eval_details, is_agent=True)
 
         chartdata = {
             "cultural": {"people": people_cultural, "agent": agent_cultural},

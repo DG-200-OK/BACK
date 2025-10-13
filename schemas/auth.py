@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional # <--- Optional 추가
 from schemas.survey import SurveyInfo
 
 class UserBase(BaseModel):
@@ -11,15 +11,17 @@ class UserCreate(UserBase):
     email: str
 
 class UserUpdate(BaseModel):
-    username: str | None = None
-    password: str | None = None
-
+    username: Optional[str] = None # <--- 수정
+    password: Optional[str] = None # <--- 수정
 
 class UserInDB(UserBase):
-    userId: int 
+    userId: int
     class Config:
         from_attributes = True
-        allow_population_by_field_name = True
+        # V2 Pydantic에서는 아래와 같이 변경되었습니다.
+        # allow_population_by_field_name = True
+        validate_by_name = True
+
 
 class LoginResponseData(BaseModel):
     userId: int
