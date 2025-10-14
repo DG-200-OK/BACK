@@ -2,13 +2,12 @@ from pydantic_settings import BaseSettings
 from urllib.parse import quote_plus
 
 class Settings(BaseSettings):
-    db_user: str = "admin"
+    db_user: str
     db_password: str
     db_host: str = "localhost"
     db_port: int = 3306
-    db_name: str = "culture_db"
+    db_name: str
 
-    secret_key: str
     aws_access_key_id: str
     aws_secret_access_key: str
     aws_s3_region_name: str

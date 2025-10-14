@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # 1. 백엔드(FastAPI) 서비스 정의
+  web:
+    build: . # 현재 디렉토리의 Dockerfile을 사용하여 이미지를 빌드
+    container_name: backend_server_web
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000" # 로컬 포트 8000과 컨테이너 포트 8000 연결
+    volumes:
+      - .:/app # 로컬 코드 변경 시 컨테이너에 반영되도록 마운트
+    
+    # 🚨 수정: 로컬 .env 파일에서 민감한 키를 읽도록 지시합니다.
+    env_file:
+      - .env
+    
+    depends_on:
+      - db # DB가 실행된 후에 웹 서버를 실행
+    environment:
+      # FastAPI 서버에서 DB에 접속할 때 필요한 환경 변수 설정
+      # DB_HOST는 docker-compose 서비스 이름(db)을 사용해야 합니다.
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: my_user
+      DB_PASSWORD: my_password
+      DB_NAME: my_database
+      DATABASE_URL: mysql+aiomysql://my_user:my_password@db:3306/my_database
+      
+      # 그 외 환경 설정 (JWT, AWS S3 등)을 여기에 추가합니다.
+      SECRET_KEY: "your_application_secret_key"
+      JWT_SECRET_KEY: "a_very_long_and_secret_random_string_here"
+      JWT_ALGORITHM: "HS256"
+      AWS_S3_REGION_NAME: "ap-northeast-2"
+      AWS_S3_BUCKET_NAME: "culturelens-assetsss"
+
+  # 2. 데이터베이스(MySQL) 서비스 정의
+  db:
+    image: mysql:8.0
+    container_name: backend_server_db
+    ports:
+      - "3306:3306" # 로컬에서 DB 접속을 원할 경우 (선택 사항)
+    environment:
+      # Docker MySQL 이미지 설정
+      MYSQL_ROOT_PASSWORD: my_password # root 비밀번호
+      MYSQL_DATABASE: my_database
+      MYSQL_USER: my_user
+      MYSQL_PASSWORD: my_password
+    volumes:
+      # 데이터 영속성을 위한 볼륨 설정
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data: # MySQL 데이터 볼륨 정의

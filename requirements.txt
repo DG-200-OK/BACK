@@ -10,3 +10,5 @@ aiomysql
 httpx
 scipy
 numpy
+requests
+cryptography
