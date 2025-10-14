@@ -16,7 +16,8 @@ services:
       - .env
     
     depends_on:
-      - db # DB가 실행된 후에 웹 서버를 실행
+      db:
+        condition: service_healthy # DB가 준비될 때까지 기다림
     environment:
       # FastAPI 서버에서 DB에 접속할 때 필요한 환경 변수 설정
       # DB_HOST는 docker-compose 서비스 이름(db)을 사용해야 합니다.
@@ -49,6 +50,13 @@ services:
     volumes:
       # 데이터 영속성을 위한 볼륨 설정
       - db_data:/var/lib/mysql
+    healthcheck:
+      # $$ 사용: 컨테이너 내부 쉘이 .env 변수를 해석하도록 이스케이프 처리
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "$$DB_USER", "-p$$DB_PASSWORD"] 
+      interval: 10s 
+      timeout: 5s
+      retries: 10
+      start_period: 30s # DB 초기화에 충분한 시간 제공
 
 volumes:
   db_data: # MySQL 데이터 볼륨 정의
