@@ -6,6 +6,7 @@ import uvicorn
 from database import engine, Base
 from routers import auth, survey, chart, ranking,  upload
 from routers.v2 import auth as auth_v2
+from .routers import crawler, data
 from models import User, Survey, Response
 import schemas
 from middlewares import response_wrapper_middleware, logging_middleware
@@ -31,6 +32,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+
 @app.on_event("startup")
 async def startup_event():
     """
@@ -48,6 +50,9 @@ app.include_router(chart.router, prefix="/api/chart", tags=["chart"])
 app.include_router(ranking.router, prefix="/api/ranking", tags=["ranking"])
 app.include_router(upload.router, prefix="/api/upload", tags=["upload"])
 app.include_router(auth_v2.router, prefix="/api/v2/auth", tags=["Authentication V2"])
+app.include_router(crawler.router, prefix="/api")
+app.include_router(data.router, prefix="/api")
+
 
 @app.get("/", tags=["Root"], response_class=HTMLResponse)
 async def read_root():

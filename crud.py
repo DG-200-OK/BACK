@@ -1,16 +1,41 @@
+# crud.py
+
 import math
 import random
+import time
+import asyncio
+import json
+import numpy as np
+import httpx
+from scipy.stats import wasserstein_distance
+
 from sqlalchemy import func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-import models
+
+# -------------------------------------------------------------------
+# (1) CultureLens 프로젝트의 의존성 (Models, Schemas, Utils)
+# (주의: 이 파일들은 실제 프로젝트 경로에 맞게 존재해야 합니다)
+# -------------------------------------------------------------------
+import models  # (예: from . import models)
 from schemas.auth import UserCreate, UserUpdate
 from schemas.survey import SurveyCreate
 from schemas.response import ResponseCreate
 from utils.security import get_password_hash
-from scipy.stats import wasserstein_distance
-import numpy as np
+
+# -------------------------------------------------------------------
+# (2) 크롤러 프로젝트의 의존성 (Schemas)
+# -------------------------------------------------------------------
+from .schemas import crawler as crawler_schema
+from .schemas import data as data_schema
+
+
+# ===================================================================
+#
+# 1. "CultureLens" 프로젝트 DB 로직
+#
+# ===================================================================
 
 # ====================
 #       User
@@ -137,7 +162,6 @@ async def get_survey(db: AsyncSession, survey_id: int):
     survey = result.scalars().first()
     if survey:
         # Explicitly touch the relationship to ensure it's loaded
-        # before the session might be closed or the async context lost.
         _ = survey.captions
     return survey
 
@@ -151,10 +175,8 @@ async def get_surveys_by_user_id(db: AsyncSession, user_id: int):
     return surveys
 
 # ====================
-#      Response
+#       Response
 # ====================
-import httpx
-
 async def create_response(db: AsyncSession, response: ResponseCreate):
     """설문에 대한 응답을 생성합니다."""
     response_data = response.model_dump()
@@ -183,8 +205,6 @@ async def create_response(db: AsyncSession, response: ResponseCreate):
     if should_send_request:
         try:
             async with httpx.AsyncClient() as client:
-                # The request body should contain necessary info for evaluation
-                # For now, let's send the captionId
                 await client.post(
                     "https://publicly-flying-crane.ngrok-free.app/api/evaluate-with-flag",
                     json={
@@ -195,7 +215,6 @@ async def create_response(db: AsyncSession, response: ResponseCreate):
                     timeout=5.0 # Set a timeout for the request
                 )
         except httpx.RequestError as exc:
-            # Log the error but don't block the main response flow
             print(f"Error sending evaluation request: {exc}")
         except Exception as exc:
             print(f"An unexpected error occurred during evaluation request: {exc}")
@@ -235,6 +254,9 @@ async def get_user_responses(db: AsyncSession, user_id: int):
         "participatedSurvey": participated_surveys,
     }
 
+# ====================
+#       Chart
+# ====================
 async def get_chart_data(db: AsyncSession, page: int, page_size: int):
     """
     설문별, 캡션 레벨별 응답 평균을 계산하여 차트 데이터를 조회합니다.
@@ -258,7 +280,6 @@ async def get_chart_data(db: AsyncSession, page: int, page_size: int):
 
     all_chart_data = []
     for survey in surveys:
-        # Group responses and agent evaluations by caption level
         level_responses = {f'레벨{i}': [] for i in range(1, 5)}
         level_agent_eval_details = {f'레벨{i}': [] for i in range(1, 5)} # Changed here
         for caption in survey.captions:
@@ -266,7 +287,6 @@ async def get_chart_data(db: AsyncSession, page: int, page_size: int):
                 level_responses[caption.type].extend(caption.responses)
                 level_agent_eval_details[caption.type].extend(caption.agent_eval_details) # Changed here
 
-        # Calculate averages for people
         people_cultural_avgs = []
         people_visual_avgs = []
         people_hallucination_avgs = []
@@ -289,7 +309,6 @@ async def get_chart_data(db: AsyncSession, page: int, page_size: int):
                 people_visual_avgs.append(round(visual_total / response_count, 2))
                 people_hallucination_avgs.append(round(hallucination_total / response_count, 2))
 
-        # Calculate averages for agent (using agent_eval_details)
         agent_cultural_avgs = [0.0] * 5 # Initialize with 0.0
         agent_visual_avgs = [0.0] * 5
         agent_hallucination_avgs = [0.0] * 5
@@ -322,64 +341,6 @@ async def get_chart_data(db: AsyncSession, page: int, page_size: int):
         all_chart_data.append(chart_item)
 
     return {"totalPages": total_pages, "chartList": all_chart_data}
-
-# ====================
-#       Ranking
-# ====================
-async def get_user_rankings(db: AsyncSession):
-    """사용자별 응답 수를 기준으로 랭킹을 조회합니다."""
-    result = await db.execute(
-        select(
-            models.User.username,
-            func.count(models.Response.responseId).label("response_count")
-        )
-        .join(models.Response, models.User.userId == models.Response.userId)
-        .where(models.Response.time > 1.9, models.User.email != None)
-        .group_by(models.User.username)
-        .order_by(func.count(models.Response.responseId).desc())
-    )
-    
-    rankings = result.all()
-    
-    # Sort rankings by response_count in descending order
-    rankings.sort(key=lambda x: x.response_count, reverse=True)
-
-    ranked_data = []
-    current_rank = 0
-    last_count = -1
-    for i, (username, count) in enumerate(rankings):
-        if count != last_count:
-            current_rank = i + 1
-            last_count = count
-        ranked_data.append({
-            "username": username,
-            "responseCount": count,
-            "rank": current_rank
-        })
-
-    return ranked_data
-
-async def get_ongoing_surveys(db: AsyncSession, user_id: int):
-    """진행 중인 설문 목록을 조회합니다. (progress가 0.25, 0.5, 0.75인 설문)"""
-    surveys = await get_surveys_with_progress(db, user_id)
-    ongoing_surveys = [survey for survey in surveys if survey.progress in [0.25, 0.5, 0.75]]
-    return ongoing_surveys
-
-async def get_all_surveys_for_upload(db: AsyncSession):
-    """업로드를 위해 모든 설문 목록을 조회합니다."""
-    result = await db.execute(select(models.Survey))
-    surveys = result.scalars().all()
-    return surveys
-
-async def update_survey_image_url(db: AsyncSession, survey_id: int, new_image_url: str):
-    """설문의 이미지 URL을 업데이트합니다."""
-    result = await db.execute(select(models.Survey).where(models.Survey.surveyId == survey_id))
-    survey = result.scalars().first()
-    if survey:
-        survey.imageUrl = new_image_url
-        await db.commit()
-        await db.refresh(survey)
-    return survey
 
 async def get_chart_data_by_caption(db: AsyncSession, page: int, page_size: int, category: str | None = None, search: str | None = None, user_id: int | None = None):
     """
@@ -481,7 +442,6 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
     """
     단일 캡션에 대한 응답을 집계하여 차트 데이터를 조회합니다.
     """
-    # Get all responses from all captions, ordered by responseId (for flag calculation)
     all_responses_query = select(models.Response).order_by(models.Response.responseId)
     all_responses_result = await db.execute(all_responses_query)
     all_responses = all_responses_result.scalars().all()
@@ -498,7 +458,6 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
     if not caption:
         return None
 
-    # Group agent_eval_details_v2 by flag
     agent_eval_details_by_flag = {}
     for detail in caption.agent_eval_details_v2:
         if detail.flag not in agent_eval_details_by_flag:
@@ -511,15 +470,11 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
         "hallucination": []
     }
 
-    # Get response IDs for this caption
     caption_response_ids = {r.responseId for r in caption.responses}
 
-    # For each flag, calculate wassenstein distance using the correct slice of user responses
     for flag in sorted(agent_eval_details_by_flag.keys()):
         details_for_flag = agent_eval_details_by_flag[flag]
 
-        # Flag represents the total number of responses in the system at that time
-        # So we take the first 'flag' number of responses from the global response list
         if flag == 0 or flag > len(all_responses):
             chartdata["cultural"].append(None)
             chartdata["visual"].append(None)
@@ -527,8 +482,6 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
             continue
 
         global_responses_for_flag = all_responses[:flag]
-
-        # Filter to get only responses that belong to this caption
         responses_for_flag = [r for r in global_responses_for_flag if r.responseId in caption_response_ids]
 
         if not responses_for_flag:
@@ -537,7 +490,6 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
             chartdata["hallucination"].append(None)
             continue
 
-        # Generate user distribution for the current slice of responses
         user_cultural_dist = [r.cultural for r in responses_for_flag if r.cultural is not None]
         user_visual_dist = [r.visual for r in responses_for_flag if r.visual is not None]
         user_hallucination_dist = [r.hallucination for r in responses_for_flag if r.hallucination is not None]
@@ -548,12 +500,7 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
             "hallucination": user_hallucination_dist
         }
 
-        # Group agent eval details by type for the current flag
-        details_by_type = {
-            "cultural": [],
-            "visual": [],
-            "hallucination": []
-        }
+        details_by_type = { "cultural": [], "visual": [], "hallucination": [] }
         for detail in details_for_flag:
             if detail.type in details_by_type:
                 details_by_type[detail.type].append(detail)
@@ -575,15 +522,13 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
                 ai_weights_sum = sum(ai_weights)
                 if ai_weights_sum > 0:
                     ai_weights = np.array(ai_weights) / ai_weights_sum
-                else: # if sum is 0, treat as uniform
+                else: 
                     ai_weights = None 
             
             dist = wasserstein_distance(user_dist, ai_values, v_weights=ai_weights)
             
             chartdata[type_name].append(dist)
 
-
-    # This function calculates the overall user distribution for the entire caption
     def calculate_user_distribution(responses):
         cultural_scores = [0] * 5
         visual_scores = [0] * 5
@@ -622,68 +567,51 @@ async def get_chart_data_for_single_caption(db: AsyncSession, caption_id: int):
         "userResponseDistribution": user_response_distribution
     }
 
+
 async def get_overall_wasserstein_distances(db: AsyncSession):
     """
     전체 캡션들의 wasserstein distance 평균을 flag별로 계산합니다.
-    Flag는 전체 시스템의 누적 응답 수를 의미합니다.
     """
-    # Get all responses from all captions, ordered by responseId
     all_responses_query = select(models.Response).order_by(models.Response.responseId)
     all_responses_result = await db.execute(all_responses_query)
     all_responses = all_responses_result.scalars().all()
 
-    # Get all captions with their responses and agent_eval_details_v2
     captions_query = select(models.Caption).options(
         selectinload(models.Caption.responses),
         selectinload(models.Caption.agent_eval_details_v2)
     )
-
     captions_result = await db.execute(captions_query)
     captions = captions_result.scalars().all()
 
-    # Dictionary to store wasserstein distances by flag
-    # flag -> type -> list of distances
     distances_by_flag = {}
 
     for caption in captions:
         if not caption.responses or not caption.agent_eval_details_v2:
             continue
 
-        # Group agent_eval_details_v2 by flag
         agent_eval_details_by_flag = {}
         for detail in caption.agent_eval_details_v2:
             if detail.flag not in agent_eval_details_by_flag:
                 agent_eval_details_by_flag[detail.flag] = []
             agent_eval_details_by_flag[detail.flag].append(detail)
 
-        # Get response IDs for this caption
         caption_response_ids = {r.responseId for r in caption.responses}
 
-        # For each flag, calculate wasserstein distance
         for flag in agent_eval_details_by_flag.keys():
             if flag not in distances_by_flag:
-                distances_by_flag[flag] = {
-                    "cultural": [],
-                    "visual": [],
-                    "hallucination": []
-                }
+                distances_by_flag[flag] = { "cultural": [], "visual": [], "hallucination": [] }
 
             details_for_flag = agent_eval_details_by_flag[flag]
 
-            # Flag represents the total number of responses in the system at that time
-            # So we take the first 'flag' number of responses from the global response list
             if flag == 0 or flag > len(all_responses):
                 continue
 
             global_responses_for_flag = all_responses[:flag]
-
-            # Filter to get only responses that belong to this caption
             responses_for_flag = [r for r in global_responses_for_flag if r.responseId in caption_response_ids]
 
             if not responses_for_flag:
                 continue
 
-            # Generate user distribution for the current slice of responses
             user_cultural_dist = [r.cultural for r in responses_for_flag if r.cultural is not None]
             user_visual_dist = [r.visual for r in responses_for_flag if r.visual is not None]
             user_hallucination_dist = [r.hallucination for r in responses_for_flag if r.hallucination is not None]
@@ -694,12 +622,7 @@ async def get_overall_wasserstein_distances(db: AsyncSession):
                 "hallucination": user_hallucination_dist
             }
 
-            # Group agent eval details by type for the current flag
-            details_by_type = {
-                "cultural": [],
-                "visual": [],
-                "hallucination": []
-            }
+            details_by_type = { "cultural": [], "visual": [], "hallucination": [] }
             for detail in details_for_flag:
                 if detail.type in details_by_type:
                     details_by_type[detail.type].append(detail)
@@ -726,7 +649,6 @@ async def get_overall_wasserstein_distances(db: AsyncSession):
                 dist = wasserstein_distance(user_dist, ai_values, v_weights=ai_weights)
                 distances_by_flag[flag][type_name].append(dist)
 
-    # Calculate averages for each flag and type
     result = {}
     for flag in sorted(distances_by_flag.keys()):
         result[flag] = {}
@@ -738,3 +660,122 @@ async def get_overall_wasserstein_distances(db: AsyncSession):
                 result[flag][type_name] = None
 
     return result
+
+# ====================
+#       Ranking
+# ====================
+async def get_user_rankings(db: AsyncSession):
+    """사용자별 응답 수를 기준으로 랭킹을 조회합니다."""
+    result = await db.execute(
+        select(
+            models.User.username,
+            func.count(models.Response.responseId).label("response_count")
+        )
+        .join(models.Response, models.User.userId == models.Response.userId)
+        .where(models.Response.time > 1.9, models.User.email != None)
+        .group_by(models.User.username)
+        .order_by(func.count(models.Response.responseId).desc())
+    )
+    
+    rankings = result.all()
+    rankings.sort(key=lambda x: x.response_count, reverse=True)
+
+    ranked_data = []
+    current_rank = 0
+    last_count = -1
+    for i, (username, count) in enumerate(rankings):
+        if count != last_count:
+            current_rank = i + 1
+            last_count = count
+        ranked_data.append({
+            "username": username,
+            "responseCount": count,
+            "rank": current_rank
+        })
+
+    return ranked_data
+
+# ====================
+#       Misc
+# ====================
+async def get_ongoing_surveys(db: AsyncSession, user_id: int):
+    """진행 중인 설문 목록을 조회합니다. (progress가 0.25, 0.5, 0.75인 설문)"""
+    surveys = await get_surveys_with_progress(db, user_id)
+    ongoing_surveys = [survey for survey in surveys if survey.progress in [0.25, 0.5, 0.75]]
+    return ongoing_surveys
+
+async def get_all_surveys_for_upload(db: AsyncSession):
+    """업로드를 위해 모든 설문 목록을 조회합니다."""
+    result = await db.execute(select(models.Survey))
+    surveys = result.scalars().all()
+    return surveys
+
+async def update_survey_image_url(db: AsyncSession, survey_id: int, new_image_url: str):
+    """설문의 이미지 URL을 업데이트합니다."""
+    result = await db.execute(select(models.Survey).where(models.Survey.surveyId == survey_id))
+    survey = result.scalars().first()
+    if survey:
+        survey.imageUrl = new_image_url
+        await db.commit()
+        await db.refresh(survey)
+    return survey
+
+
+# ===================================================================
+#
+# 2. "크롤러" 프로젝트 더미(Dummy) 로직
+#
+# ===================================================================
+
+# API 1 더미 데이터
+def get_dummy_crawler_score():
+    return {"scoreA": 89, "scoreC": 100}
+
+# API 2 더미 데이터
+def get_dummy_crawler_data():
+    return {
+        "scoreA": 89,
+        "scoreC": 100,
+        "country": "한국",
+        "category": "Cuisine",
+        "imageUrl": "https://..."
+    }
+
+# API 3 더미 데이터 (동적 스트리밍 버전)
+async def stream_dummy_crawler_search(request: crawler_schema.CrawlerSearchRequest):
+    """
+    100%가 될 때까지 진행률을 '동적으로 계산하는 척'하며 스트리밍합니다.
+    """
+    print(f"크롤러 동적 스트리밍 시작: {request.keyword}")
+    start_time = time.time()
+    
+    progress = 0
+    while progress < 100:
+        await asyncio.sleep(0.5)
+        progress += random.randint(5, 15)
+        
+        if progress >= 100:
+            progress = 100
+
+        elapsed_time = round(time.time() - start_time)
+        current_speed = random.randint(20, 50)
+        
+        data_packet = {
+            "progress": progress,
+            "time": elapsed_time,
+            "speed": current_speed
+        }
+        
+        yield f"data: {json.dumps(data_packet)}\n\n"
+
+    print(f"크롤러 스트리밍 완료: {request.keyword}")
+
+# API 4 더미 데이터
+def create_dummy_data_search(request: data_schema.DataSearchRequest):
+    print(f"데이터 검색 요청 받음: {request.category}, {request.nation}")
+    return {
+        "category": "옷",
+        "image": "http-...",
+        "total_data_set": 100,
+        "nation": "한국"
+    }
